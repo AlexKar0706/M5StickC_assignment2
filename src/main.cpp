@@ -1,8 +1,17 @@
 #include "general.h"
 #include "screens.h"
 #include <SPIFFS.h>
+#if (USE_NTP_TIME)
+#include "secret_example.h"
+#if (!USE_SECRET_EXAMPLE)
+#include "secret.h"
+#endif
+#include <WiFi.h>
+#include <esp_sntp.h>
+#endif
 
-#define FIRST_START_UP (0)  // Formate file system, if first start-up
+const long gmtOffset_sec     = 0;
+const int daylightOffset_sec = 3600;
 
 static size_t available_index  = 0;
 static size_t record_index  = 2;
@@ -26,15 +35,48 @@ void RtcTimerCallback(TimerHandle_t xTimer)
 
 void StartRTC(void) 
 {
-    /* Save compile timestamp as RTC start point */
     struct tm tm;
+#if (USE_NTP_TIME)
+    /* Get time from NTP server */
+    uint32_t retry_attempts = 3;
+    while (retry_attempts--) {
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        uint8_t wifi_sync_max = 50;
+        while (WiFi.status() != WL_CONNECTED && wifi_sync_max != 0) {
+            vTaskDelay(pdMS_TO_TICKS((100)));
+            wifi_sync_max--;
+        }
+        if (wifi_sync_max == 0) {
+            WiFi.disconnect(true);
+            WiFi.mode(WIFI_OFF);
+            continue;
+        }
+        configTime(gmtOffset_sec, daylightOffset_sec, WIFI_NTP_SERVER);
+        sntp_sync_status_t sync_status = sntp_get_sync_status();
+        uint8_t status_sync_max = 50;
+        while (sync_status != SNTP_SYNC_STATUS_COMPLETED && status_sync_max != 0) {
+            sync_status = sntp_get_sync_status();
+            vTaskDelay(pdMS_TO_TICKS((100)));
+            status_sync_max--;
+        }
+        sntp_stop();
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        if (status_sync_max == 0) continue;
+        break;
+    }
+    getLocalTime(&tm);
+#else 
+    /* Save compile timestamp as RTC start point */
     strptime(__TIMESTAMP__, "%a %b %d %H:%M:%S %Y", &tm);
+#endif
 
     M5.Rtc.begin();
     M5.Rtc.setDateTime(tm);
     rtc_timestamp = M5.Rtc.getDateTime().get_tm();
     rtc_get_time = false;
-    xtimer_rtc = xTimerCreate("RtcTimerCallback", pdMS_TO_TICKS(250), pdTRUE, (void *)0, RtcTimerCallback);
+    xtimer_rtc = xTimerCreate("RtcTimerCallback", pdMS_TO_TICKS(50), pdTRUE, (void *)0, RtcTimerCallback);
     xTimerStart(xtimer_rtc, 0);
 }
 
@@ -74,7 +116,7 @@ void StartRecording(void)
     available_index = 0;
     record_index = 2;
     total_record_readings = 0;
-    if (record_in_flash) {
+    if (record_type == RECORDING_FLASH_RAW || record_type == RECORDING_FLASH_TIMED) {
         mic_file = SPIFFS.open(file_name, "w");
         rtc_timestamp = M5.Rtc.getDateTime().get_tm();
         recording_start_time = mktime(&rtc_timestamp);
@@ -84,15 +126,40 @@ void StartRecording(void)
 
 void StopRecording(void)
 {
-    if (record_in_flash) {
+    if (record_type == RECORDING_FLASH_RAW || record_type == RECORDING_FLASH_TIMED) {
         mic_file.close();
     }
     recording_state = RECORDING_STOPPED;
 }
 
+void ScheduleRecording(void) 
+{
+    struct tm planned_record_time;
+    uint32_t seconds_offset = 1; 
+
+    planned_record_time = rtc_timestamp = M5.Rtc.getDateTime().get_tm();
+
+    /* Schedule recording to the next minute, if less then 10 second remaining */
+    if (planned_record_time.tm_sec > 50) {
+        seconds_offset += 60;
+    }
+
+    /* Schedule recording at the start of new minute */
+    planned_record_time.tm_sec = 59;
+
+    record_planned_time = mktime(&planned_record_time);
+    record_planned_time += seconds_offset;
+    recording_state = RECORDING_PLANNED;
+} 
+
+void StopScheduleRecording(void)
+{
+    recording_state = RECORDING_INACTIVE;
+}
+
 void RecordAudio(void) 
 {
-    if (record_in_flash) {
+    if (record_type == RECORDING_FLASH_RAW || record_type == RECORDING_FLASH_TIMED) {
         if (difftime(current_time, recording_start_time) >= static_cast<double>(recording_length_sec)) {
             StopRecording();
             return;
@@ -114,7 +181,7 @@ void RecordAudio(void)
             }
 
             if (total_record_readings >= 2) {
-                if (record_in_flash) {
+                if (record_type == RECORDING_FLASH_RAW || record_type == RECORDING_FLASH_TIMED) {
 
                     uint8_t* data_buffer = reinterpret_cast<uint8_t*>(&record_available_buffer[0]);
 
@@ -148,6 +215,13 @@ void RecordAudio(void)
 
 void CheckRecording(void) 
 {
+    if (recording_state == RECORDING_PLANNED) {
+        if (difftime(record_planned_time, current_time) <= 0) {
+            StartRecording();
+            ChangeScreen(SCREEN_RECORD_RUNNING);
+        }
+    }
+
     if (recording_state == RECORDING_RUNNING) {
         RecordAudio();
     } else if (recording_state == RECORDING_STOPPED) {
@@ -269,6 +343,8 @@ void CheckButtons(void)
         case SCREEN_RTC_TIME:
             if (recording_state == RECORDING_RUNNING) {
                 ChangeScreen(SCREEN_RECORD_RUNNING);
+            } else if (recording_state == RECORDING_PLANNED) {
+                ChangeScreen(SCREEN_PLANNED_RECORD);
             } else if (file_sending_state != FILE_SENDING_INACTIVE) {
                 ChangeScreen(SCREEN_FILE_SENDING);
             } else {
@@ -279,7 +355,8 @@ void CheckButtons(void)
         case SCREEN_START_RECORD:
         case SCREEN_RECORD_WILL_BE_LOST:
         case SCREEN_RECORD_RUNNING:
-            if (recording_state == RECORDING_RUNNING) {
+        case SCREEN_PLANNED_RECORD:
+            if (recording_state == RECORDING_RUNNING || recording_state == RECORDING_PLANNED) {
                 ChangeScreen(SCREEN_RTC_TIME);
             } else {
                 record_exists = IsRecordExists();
@@ -307,8 +384,11 @@ void CheckButtons(void)
 
         case SCREEN_START_RECORD:
             record_exists = IsRecordExists();
-            if (record_exists && record_in_flash) {
+            if (record_exists && (record_type == RECORDING_FLASH_RAW || record_type == RECORDING_FLASH_TIMED)) {
                 ChangeScreen(SCREEN_RECORD_WILL_BE_LOST);
+            } else if (record_type == RECORDING_FLASH_TIMED) {
+                ScheduleRecording();
+                ChangeScreen(SCREEN_PLANNED_RECORD);
             } else {
                 StartRecording();
                 ChangeScreen(SCREEN_RECORD_RUNNING);
@@ -318,8 +398,12 @@ void CheckButtons(void)
         case SCREEN_RECORD_WILL_BE_LOST:
             ChangeScreen(SCREEN_DELETE_RECORD);
             DeleteRecordingFile();
-            StartRecording();
-            ChangeScreen(SCREEN_RECORD_RUNNING);
+            ChangeScreen(SCREEN_START_RECORD);
+            break;
+
+        case SCREEN_PLANNED_RECORD:
+            StopScheduleRecording();
+            ChangeScreen(SCREEN_START_RECORD);
             break;
 
         case SCREEN_RECORD_RUNNING:
@@ -327,8 +411,12 @@ void CheckButtons(void)
             break;
 
         case SCREEN_CHOOSE_RECORD_MODE:
-            if (recording_state != RECORDING_RUNNING) {
-                record_in_flash ^= 1;
+            if (recording_state != RECORDING_RUNNING && recording_state != RECORDING_PLANNED) {
+                switch (record_type) {
+                case RECORDING_UART:        record_type = RECORDING_FLASH_RAW; break;
+                case RECORDING_FLASH_RAW:   record_type = RECORDING_FLASH_TIMED; break;
+                case RECORDING_FLASH_TIMED: record_type = RECORDING_UART; break;
+                }
                 RefreshScreen(false);
             }
             break;
@@ -358,12 +446,12 @@ void setup()
     Serial.begin(500000);
     Serial.setTxBufferSize(record_message_size + 64);
     Serial.setTimeout(10);
+
+    ScreensInit();
+    ChangeScreen(SCREEN_STARTUP);
+
     StartRTC();
     InitRecording();
-    ScreensInit();
-;
-    ChangeScreen(SCREEN_STARTUP);
-    vTaskDelay(pdMS_TO_TICKS(2000));
 
     ChangeScreen(SCREEN_PREPARE_FILE_SYSTEM);
     StartFileSystem();

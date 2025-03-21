@@ -3,11 +3,21 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 
+#define FIRST_START_UP (0)  // Formate file system, if first start-up
+#define USE_NTP_TIME   (1)
+
 typedef enum {
     RECORDING_INACTIVE,
     RECORDING_RUNNING,
+    RECORDING_PLANNED,
     RECORDING_STOPPED,
 } RecordingState_t;
+
+typedef enum {
+    RECORDING_UART,
+    RECORDING_FLASH_RAW,
+    RECORDING_FLASH_TIMED,
+} RecordingType_t;
 
 typedef enum {
     FILE_SENDING_INACTIVE,
@@ -34,7 +44,8 @@ constexpr const size_t record_file_message_size = 20 + record_file_message_lengt
 extern struct tm rtc_timestamp;
 extern volatile FileSendingState_t file_sending_state;
 extern volatile RecordingState_t recording_state;
-extern volatile bool record_in_flash;
+extern volatile RecordingType_t record_type;
+extern time_t record_planned_time;
 extern time_t recording_start_time;
 extern volatile bool record_exists;
 extern size_t samples_sent;

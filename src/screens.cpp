@@ -38,9 +38,6 @@ void RefreshScreen(bool full_redraw)
 
 static void ScreenStartUp(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(32, 15);
     M5.Display.print("ITS8055");
     M5.Display.setCursor(0, 45);
@@ -49,9 +46,6 @@ static void ScreenStartUp(void)
 
 static void ScreenPrepareFileSystem(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(24, 15);
     M5.Display.print("Preparing");
     M5.Display.setCursor(16, 45);
@@ -60,9 +54,6 @@ static void ScreenPrepareFileSystem(void)
 
 static void ScreenCurrentTime(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(25, 15);
     M5.Display.print("RTC time:");
     M5.Display.setCursor(30, 45);
@@ -71,20 +62,22 @@ static void ScreenCurrentTime(void)
 
 static void ScreenStartRecording(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(55, 15);
     M5.Display.print("Start");
     M5.Display.setCursor(41, 45);
     M5.Display.print("Record");
 }
 
+static void ScreenPlannedRecording(void) 
+{
+    M5.Display.setCursor(27, 15);
+    M5.Display.print("Record in:");
+    M5.Display.setCursor(35, 45);
+    M5.Display.printf("  %3d sec  ", static_cast<int>(difftime(record_planned_time, mktime(&rtc_timestamp))));
+}
+
 static void ScreenRecordWillBeLost(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(20, 15);
     M5.Display.print("Record will");
     M5.Display.setCursor(45, 45);
@@ -93,9 +86,6 @@ static void ScreenRecordWillBeLost(void)
 
 static void ScreenDeleteRecord(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(34, 15);
     M5.Display.print("Deleting");
     M5.Display.setCursor(41, 45);
@@ -104,11 +94,8 @@ static void ScreenDeleteRecord(void)
 
 static void ScreenRecordRunning(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(0, 15);
-    if (record_in_flash) {
+    if (record_type == RECORDING_FLASH_RAW || record_type == RECORDING_FLASH_TIMED) {
         M5.Display.setCursor(29, 15);
         M5.Display.print("Flash rec");
         M5.Display.setTextFont(2);
@@ -125,10 +112,6 @@ static void ScreenRecordRunning(void)
 
 static void ScreenRecordSuccessful(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
-
     M5.Display.setCursor(23, 15);
     M5.Display.print("Recording");
     M5.Display.setCursor(20, 45);
@@ -137,12 +120,13 @@ static void ScreenRecordSuccessful(void)
 
 static void ScreenChooseRecordMode(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(0, 15);
     M5.Display.print("Record mode:");
-    if (record_in_flash) {
+    M5.Display.fillRect(0, 45, M5.Display.width(), M5.Display.height() - 45);
+    if (record_type == RECORDING_FLASH_TIMED) {
+        M5.Display.setCursor(10, 45);
+        M5.Display.print("Timed Flash");
+    } else if (record_type == RECORDING_FLASH_RAW) {
         M5.Display.setCursor(50, 45);
         M5.Display.print("Flash ");
     } else {
@@ -153,9 +137,6 @@ static void ScreenChooseRecordMode(void)
 
 static void ScreenSendFile(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(5, 15);
     M5.Display.println("Start sending");
     M5.Display.setCursor(41, 45);
@@ -164,10 +145,6 @@ static void ScreenSendFile(void)
 
 static void ScreenFileSending(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
-
     if (file_sending_state == FILE_SENDING_START) {
         M5.Display.setCursor(38, 15);
         M5.Display.print("Waiting");
@@ -187,9 +164,6 @@ static void ScreenFileSending(void)
 
 static void ScreenFileSendingSuccessful(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(7, 15);
     M5.Display.print("Rec was sent");
     M5.Display.setCursor(9, 45);
@@ -198,9 +172,6 @@ static void ScreenFileSendingSuccessful(void)
 
 static void ScreenFileSendingFailed(void) 
 {
-    M5.Display.setRotation(3);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextFont(4);
     M5.Display.setCursor(35, 15);
     M5.Display.println("Sending");
     M5.Display.setCursor(48, 45);
@@ -249,6 +220,7 @@ static void IndicateScreenType(void)
         case SCREEN_RECORD_WILL_BE_LOST:
         case SCREEN_DELETE_RECORD:
         case SCREEN_START_RECORD:
+        case SCREEN_PLANNED_RECORD:
         case SCREEN_RECORD_RUNNING:
         case SCREEN_RECORD_SUCCESSFUL:
             screen_type_character = 'R';
@@ -290,7 +262,7 @@ static void DisplayTimer(TimerHandle_t xTimer)
     }
 
     if ((ms10 % 100) == 0) {
-        if (active_screen == SCREEN_FILE_SENDING) {
+        if (active_screen == SCREEN_FILE_SENDING || active_screen == SCREEN_PLANNED_RECORD) {
             RefreshScreen(false);
         }
     }
@@ -308,6 +280,10 @@ static void DisplayTask(void* arg)
             M5.Display.clear();
             screen_transition = false;
         }
+        /* Set default settings */
+        M5.Display.setRotation(3);
+        M5.Display.setTextSize(1);
+        M5.Display.setTextFont(4);
         switch (active_screen) {
 
             case SCREEN_STARTUP:
@@ -324,6 +300,10 @@ static void DisplayTask(void* arg)
 
             case SCREEN_START_RECORD:
                 ScreenStartRecording();
+                break;
+
+            case SCREEN_PLANNED_RECORD:
+                ScreenPlannedRecording();
                 break;
 
             case SCREEN_RECORD_WILL_BE_LOST:
