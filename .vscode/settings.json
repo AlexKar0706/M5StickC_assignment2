@@ -3,5 +3,5 @@
         "*.tcc": "cpp",
         "fstream": "cpp",
         "sstream": "cpp"
-    }
+    },
 }
