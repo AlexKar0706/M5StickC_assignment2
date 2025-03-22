@@ -2,6 +2,7 @@
 #include "RecordModule.h"
 #include "RtcModule.h"
 #include "ScreensModule.h"
+#include <SPIFFS.h>
 
 RecordModule Rec;
 

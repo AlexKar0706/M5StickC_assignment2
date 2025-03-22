@@ -2,6 +2,7 @@
 
 #include "general.h"
 #include "RtcModule.h"
+#include <SPIFFS.h>
 
 #define UART_RECORD_START_BYTE1 0xAA
 #define UART_RECORD_START_BYTE2 0xFF
