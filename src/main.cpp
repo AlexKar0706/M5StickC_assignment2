@@ -106,6 +106,10 @@ void CheckButtons(void)
         if (Rec.GetSendState() == RecordModule::SendState::Send_inactive && Rec.GetRecState() == RecordModule::RecordState::Record_inactive) {
             ESP.restart();
         }
+    } else if (M5.BtnPWR.wasHold()) {
+        if (Rec.GetSendState() == RecordModule::SendState::Send_inactive && Rec.GetRecState() == RecordModule::RecordState::Record_inactive) {
+            M5.Power.powerOff();
+        }
     }
 }
 

@@ -198,7 +198,7 @@ void RecordModule::StopSending(bool succesful_stop)
 void RecordModule::Update(void) 
 {
     if (m_recording_state == Record_planned) {
-        if (difftime(m_record_planned_time, Rtc.GetCurrentTime()) <= 0) {
+        if (RecordModule::GetTimeUntilStart() <= 0) {
             RecordModule::Start();
             Screens.SetScreen(Screen::Record_running);
         }
