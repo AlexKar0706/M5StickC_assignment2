@@ -10,7 +10,7 @@ void ScreensModule::_ScreenStartUp(void)
     M5.Display.setCursor(32, 15);
     M5.Display.print("ITS8055");
     M5.Display.setCursor(0, 45);
-    M5.Display.print("Assignment 2");
+    M5.Display.print("Assignment 6");
 }
 
 void ScreensModule::_ScreenPrepareFileSystem(void) 
