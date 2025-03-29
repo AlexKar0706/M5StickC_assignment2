@@ -110,8 +110,8 @@ void RecordModule::Begin(void)
     SPIFFS.begin();
 #if (FIRST_START_UP)
     SPIFFS.format();
-    mic_file = SPIFFS.open(file_name, "w");
-    mic_file.close();
+    m_mic_file = SPIFFS.open(file_name, "w");
+    m_mic_file.close();
 #endif
 }
 
