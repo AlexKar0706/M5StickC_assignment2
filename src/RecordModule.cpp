@@ -36,23 +36,23 @@ void RecordModule::_RecordAudio(void)
             RecordModule::Stop();
             return;
         }
-    }
 
-    if (difftime(Rtc.GetCurrentTime(), m_recording_current_time) != 0) {
-        double rms = sqrt(m_rms_sum / static_cast<double>(m_total_record_readings));
-        m_spl_data[m_spl_data_size++] = static_cast<int16_t>(20 * log10(rms) + 94);
-        m_recording_current_time = Rtc.GetCurrentTime();
-        m_total_record_readings = 0;
-        m_rms_sum = 0;
+        if (difftime(Rtc.GetCurrentTime(), m_recording_current_time) != 0) {
+            double rms = sqrt(m_rms_sum / static_cast<double>(m_total_samples_readings));
+            m_spl_data[m_spl_data_size++] = static_cast<int16_t>(20 * log10(rms) + 94);
+            m_recording_current_time = Rtc.GetCurrentTime();
+            m_total_samples_readings = 0;
+            m_rms_sum = 0;
+        }
     }
 
     if (M5.Mic.isEnabled()) {
         if (M5.Mic.record(&m_record_data[m_record_index * record_length], record_length, record_sample_rate)) {
             int16_t* record_available_buffer = &m_record_data[m_available_index * record_length];
-            m_total_record_readings++;
+            m_total_samples_readings += record_length;
 
             if (m_record_type == RecordType::Flash_raw || m_record_type == RecordType::Flash_timed) {
-                m_rms_sum = _GetNormalizedSquareSum(record_available_buffer, record_length, _GetAverage(record_available_buffer, record_length));
+                m_rms_sum += _GetNormalizedSquareSum(record_available_buffer, record_length, _GetAverage(record_available_buffer, record_length));
             } else {         
 
                 uint8_t* data_buffer = reinterpret_cast<uint8_t*>(&record_available_buffer[0]);
@@ -68,8 +68,6 @@ void RecordModule::_RecordAudio(void)
             if (++m_record_index >= record_number) {
                 m_record_index = 0;
             }
-
-            m_total_record_readings++;
 
         }
 
@@ -147,7 +145,7 @@ void RecordModule::Start(void)
     memset(m_record_data, '\0', record_byte_size);
     m_available_index = 0;
     m_record_index = 2;
-    m_total_record_readings = 0;
+    m_total_samples_readings = 0;
     if (m_record_type == RecordType::Flash_raw || m_record_type == RecordType::Flash_timed) {
         Rtc.Update(true);
         m_rms_sum = 0;

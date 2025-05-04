@@ -51,7 +51,7 @@ private:
 
     size_t m_available_index  = 0;
     size_t m_record_index  = 2;
-    size_t m_total_record_readings = 0;
+    size_t m_total_samples_readings = 0;
     int16_t *m_record_data;
     int16_t m_spl_data[recording_length_sec];
     size_t m_spl_data_size = 0;
