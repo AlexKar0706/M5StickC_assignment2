@@ -6,27 +6,53 @@
 
 RecordModule Rec;
 
+double RecordModule::_GetAverage(int16_t* data, size_t data_size) 
+{
+    double sum = 0;
+
+    for (size_t i = 0; i < data_size; i++) {
+        sum += static_cast<double>(data[i]);
+    }
+
+    return sum / static_cast<double>(data_size);
+}
+
+double RecordModule::_GetNormalizedSquareSum(int16_t* data, size_t data_size, double average) 
+{
+    double norm_square_sum = 0;
+
+    for (size_t i = 0; i < data_size; i++) {
+        double norm = (static_cast<double>(data[i]) - average) / 32768.0;
+        norm_square_sum += norm*norm; 
+    }
+
+    return norm_square_sum;
+}
+
 void RecordModule::_RecordAudio(void) 
 {
     if (m_record_type == RecordType::Flash_raw || m_record_type == RecordType::Flash_timed) {
-        if (difftime(Rtc.GetCurrentTime(), m_recording_start_time) >= static_cast<double>(recording_length_sec)) {
+        if (difftime(Rtc.GetCurrentTime(), m_recording_start_time) > static_cast<double>(recording_length_sec)) {
             RecordModule::Stop();
             return;
         }
     }
 
+    if (difftime(Rtc.GetCurrentTime(), m_recording_current_time) != 0) {
+        double rms = sqrt(m_rms_sum / static_cast<double>(m_total_record_readings));
+        m_spl_data[m_spl_data_size++] = static_cast<int16_t>(20 * log10(rms) + 94);
+        m_recording_current_time = Rtc.GetCurrentTime();
+        m_total_record_readings = 0;
+        m_rms_sum = 0;
+    }
+
     if (M5.Mic.isEnabled()) {
         if (M5.Mic.record(&m_record_data[m_record_index * record_length], record_length, record_sample_rate)) {
             int16_t* record_available_buffer = &m_record_data[m_available_index * record_length];
+            m_total_record_readings++;
 
             if (m_record_type == RecordType::Flash_raw || m_record_type == RecordType::Flash_timed) {
-
-                uint8_t* data_buffer = reinterpret_cast<uint8_t*>(&record_available_buffer[0]);
-
-                time_t current_time = Rtc.GetCurrentTime();
-                uint8_t* time_buffer = reinterpret_cast<uint8_t*>(&current_time);
-                m_mic_file.write(time_buffer, sizeof(time_t));
-                m_mic_file.write(data_buffer, record_byte_length);
+                m_rms_sum = _GetNormalizedSquareSum(record_available_buffer, record_length, _GetAverage(record_available_buffer, record_length));
             } else {         
 
                 uint8_t* data_buffer = reinterpret_cast<uint8_t*>(&record_available_buffer[0]);
@@ -62,26 +88,27 @@ void RecordModule::_SendRecord(void)
         }
     } else if (m_file_sending_state == SendState::Send_transmit) {
 
-        char time_message_buffer[24];
+        char message_buffer[record_file_message_size];
+        char* message_ptr =  &message_buffer[0];
 
-        uint8_t time_bytes[sizeof(time_t)];
-        if (m_mic_file.read(&time_bytes[0], sizeof(time_t)) != sizeof(time_t)) {
+        if (m_spl_data_size == m_samples_sent) {
             /* No data available */
             Serial.println('e');
             RecordModule::StopSending(true);
             return;
         }
 
-        time_t samples_time = *(reinterpret_cast<time_t*>(&time_bytes));
-        struct tm* samples_time_struct = localtime(&samples_time);
-        strftime(time_message_buffer, 24, "%Y-%m-%d %T:\r\n", samples_time_struct);
+        m_recording_current_time++;
 
-        uint8_t data_buffer[record_byte_length] = { 0 };
-        m_mic_file.read(&data_buffer[0], record_byte_length);
+        struct tm* samples_time_struct = localtime(&m_recording_current_time);
+        message_ptr += strftime(message_ptr, 22, "%Y-%m-%d %T:", samples_time_struct);
+        
+        uint8_t sample_bytes[sizeof(int16_t)];
+        m_mic_file.read(&sample_bytes[0], sizeof(int16_t));
+        sprintf(message_ptr, " %d\r\n", *(reinterpret_cast<int16_t*>(&sample_bytes[0])));
 
-        Serial.write(time_message_buffer, strlen(time_message_buffer));
-        Serial.write(data_buffer, record_byte_length);
-        m_samples_sent += record_length;
+        Serial.write(message_buffer, strlen(message_buffer));
+        m_samples_sent++;
         m_file_sending_state = SendState::Send_confirm;
 
     } else if (m_file_sending_state == SendState::Send_confirm) {
@@ -122,9 +149,10 @@ void RecordModule::Start(void)
     m_record_index = 2;
     m_total_record_readings = 0;
     if (m_record_type == RecordType::Flash_raw || m_record_type == RecordType::Flash_timed) {
-        m_mic_file = SPIFFS.open(file_name, "w");
         Rtc.Update(true);
-        m_recording_start_time = Rtc.GetCurrentTime();
+        m_rms_sum = 0;
+        m_spl_data_size = 0;
+        m_recording_current_time = m_recording_start_time = Rtc.GetCurrentTime();
     }
     m_recording_state = RecordState::Record_running;
 }
@@ -132,7 +160,20 @@ void RecordModule::Start(void)
 void RecordModule::Stop(void)
 {
     if (m_record_type == RecordType::Flash_raw || m_record_type == RecordType::Flash_timed) {
-        m_mic_file.close();
+        
+        if (m_spl_data_size > 0) {
+            m_mic_file = SPIFFS.open(file_name, "w");
+
+            uint8_t* time_buffer = reinterpret_cast<uint8_t*>(&m_recording_start_time);
+            uint8_t* data_size_buffer = reinterpret_cast<uint8_t*>(&m_spl_data_size);
+            uint8_t* data_buffer = reinterpret_cast<uint8_t*>(&m_spl_data[0]);
+            m_mic_file.write(time_buffer, sizeof(time_t));
+            m_mic_file.write(data_size_buffer, sizeof(size_t));
+            m_mic_file.write(data_buffer, m_spl_data_size * sizeof(int16_t));
+
+            m_mic_file.close();
+        }
+
     }
     m_recording_state = RecordState::Record_stopped;
 }
@@ -160,8 +201,8 @@ void RecordModule::StartSchedule(void)
         seconds_offset += 60;
     }
 
-    /* Schedule recording at the start of new minute */
-    planned_record_time.tm_sec = 59;
+    /* Schedule recording at the last second of current minute */
+    planned_record_time.tm_sec = 58;
 
     m_record_planned_time = mktime(&planned_record_time);
     m_record_planned_time += seconds_offset;
@@ -186,6 +227,27 @@ void RecordModule::StartSending(void)
     m_file_sending_state = SendState::Send_start;
     m_samples_sent = 0;
     m_mic_file = SPIFFS.open(file_name, "r");
+    uint8_t time_bytes[sizeof(time_t)];
+    uint8_t size_bytes[sizeof(time_t)];
+    if (m_mic_file.read(&time_bytes[0], sizeof(time_t)) != sizeof(time_t)) {
+        /* Data corrupted */
+        RecordModule::StopSending(false);
+        return;
+    }
+    if (m_mic_file.read(&size_bytes[0], sizeof(size_t)) != sizeof(size_t)) {
+        /* Data corrupted */
+        RecordModule::StopSending(false);
+        return;
+    }
+
+    m_recording_current_time = *(reinterpret_cast<time_t*>(&time_bytes));
+    m_spl_data_size = *(reinterpret_cast<size_t*>(&size_bytes));
+
+    if (m_spl_data_size == 0) {
+        /* No samples available */
+        RecordModule::StopSending(false);
+        return;
+    }
 }
 
 void RecordModule::StopSending(bool succesful_stop) 

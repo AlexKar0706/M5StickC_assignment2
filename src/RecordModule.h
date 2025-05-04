@@ -13,12 +13,12 @@ constexpr const size_t record_sample_rate = 10000;
 constexpr const size_t record_size       = record_number * record_length;
 constexpr const size_t record_byte_length = record_length * sizeof(int16_t);
 constexpr const size_t record_byte_size = record_number * record_byte_length;
-constexpr const size_t recording_length_sec = 30;
-constexpr const size_t recording_samples_max = recording_length_sec * record_sample_rate;
+constexpr const size_t recording_length_sec = 60 * 10 ;
+constexpr const size_t recording_samples_max = recording_length_sec;
 constexpr const size_t record_message_length = sizeof(int16_t);
 constexpr const size_t record_message_size = record_message_length * record_length;
-constexpr const size_t record_file_message_length = sizeof(int16_t);  // '-' sign + 5 digits (int16_t) + ',' sign
-constexpr const size_t record_file_message_size = 20 + record_file_message_length * record_length + 2;  // YYYY-MM-DD hh:mm:ss: (20 signs) + samples + CR + LF
+constexpr const size_t record_file_message_length = 7;  // '-' sign + 5 digits (int16_t) + ' ' sign
+constexpr const size_t record_file_message_size = 20 + record_file_message_length + 2 + 8;  // YYYY-MM-DD hh:mm:ss: (20 signs) + samples + CR + LF + 8 bytes reserv
 constexpr const char file_name[] = "/M5StickC/mic.bin";
 
 class RecordModule {
@@ -53,15 +53,21 @@ private:
     size_t m_record_index  = 2;
     size_t m_total_record_readings = 0;
     int16_t *m_record_data;
+    int16_t m_spl_data[recording_length_sec];
+    size_t m_spl_data_size = 0;
+    double m_rms_sum;
     File m_mic_file;
     time_t m_record_planned_time;
     time_t m_recording_start_time;
+    time_t m_recording_current_time;
     size_t m_samples_sent;
     size_t m_confirmation_retry = 3;
     volatile SendState m_file_sending_state;
     volatile RecordState m_recording_state;
     volatile RecordType m_record_type = Flash_timed;
 
+    double _GetAverage(int16_t* data, size_t data_size);
+    double _GetNormalizedSquareSum(int16_t* data, size_t data_size, double average);
     void _RecordAudio(void);
     void _SendRecord(void);
 public:

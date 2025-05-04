@@ -4,7 +4,7 @@
 
 class RtcModule {
 private:
-    const long m_gmtOffset_sec     = 0;
+    const long m_gmtOffset_sec     = 3600;
     const int m_daylightOffset_sec = 3600;
     TimerHandle_t m_xtimer_rtc;
     time_t m_current_time;
