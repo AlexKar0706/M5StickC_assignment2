@@ -17,8 +17,8 @@ constexpr const size_t recording_length_sec = 60 * 10 ;
 constexpr const size_t recording_samples_max = recording_length_sec;
 constexpr const size_t record_message_length = sizeof(int16_t);
 constexpr const size_t record_message_size = record_message_length * record_length;
-constexpr const size_t record_file_message_length = 7;  // '-' sign + 5 digits (int16_t) + ' ' sign
-constexpr const size_t record_file_message_size = 20 + record_file_message_length + 2 + 8;  // YYYY-MM-DD hh:mm:ss: (20 signs) + samples + CR + LF + 8 bytes reserv
+constexpr const size_t record_file_message_length = 14;  // ',' sign + '-' sign + 6 digits (double exponent) + 6 digits (double fraction)
+constexpr const size_t record_file_message_size = 20 + 1 + record_file_message_length + 2 + 8;  // YYYY-MM-DD hh:mm:ss: (20 signs) + sample + CR + LF + 8 bytes reserv
 constexpr const char file_name[] = "/M5StickC/mic.bin";
 
 class RecordModule {
@@ -53,7 +53,7 @@ private:
     size_t m_record_index  = 2;
     size_t m_total_samples_readings = 0;
     int16_t *m_record_data;
-    int16_t m_spl_data[recording_length_sec];
+    double m_spl_data[recording_length_sec + 1];
     size_t m_spl_data_size = 0;
     double m_rms_sum;
     File m_mic_file;

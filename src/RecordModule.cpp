@@ -38,8 +38,8 @@ void RecordModule::_RecordAudio(void)
         }
 
         if (difftime(Rtc.GetCurrentTime(), m_recording_current_time) != 0) {
-            double rms = sqrt(m_rms_sum / static_cast<double>(m_total_samples_readings));
-            m_spl_data[m_spl_data_size++] = static_cast<int16_t>(20 * log10(rms) + 94);
+            double rms = (m_total_samples_readings > 0) ? sqrt(m_rms_sum / static_cast<double>(m_total_samples_readings)) : 0;
+            m_spl_data[m_spl_data_size++] = static_cast<double>(20 * log10(rms) + 94);
             m_recording_current_time = Rtc.GetCurrentTime();
             m_total_samples_readings = 0;
             m_rms_sum = 0;
@@ -99,11 +99,11 @@ void RecordModule::_SendRecord(void)
         m_recording_current_time++;
 
         struct tm* samples_time_struct = localtime(&m_recording_current_time);
-        message_ptr += strftime(message_ptr, 22, "%Y-%m-%d %T:", samples_time_struct);
+        message_ptr += strftime(message_ptr, 22, "%Y-%m-%d %T,", samples_time_struct);
         
-        uint8_t sample_bytes[sizeof(int16_t)];
-        m_mic_file.read(&sample_bytes[0], sizeof(int16_t));
-        sprintf(message_ptr, " %d\r\n", *(reinterpret_cast<int16_t*>(&sample_bytes[0])));
+        uint8_t sample_bytes[sizeof(double)];
+        m_mic_file.read(&sample_bytes[0], sizeof(double));
+        sprintf(message_ptr, "%.6lf\r\n", *(reinterpret_cast<double*>(&sample_bytes[0])));
 
         Serial.write(message_buffer, strlen(message_buffer));
         m_samples_sent++;
@@ -167,7 +167,7 @@ void RecordModule::Stop(void)
             uint8_t* data_buffer = reinterpret_cast<uint8_t*>(&m_spl_data[0]);
             m_mic_file.write(time_buffer, sizeof(time_t));
             m_mic_file.write(data_size_buffer, sizeof(size_t));
-            m_mic_file.write(data_buffer, m_spl_data_size * sizeof(int16_t));
+            m_mic_file.write(data_buffer, m_spl_data_size * sizeof(double));
 
             m_mic_file.close();
         }
